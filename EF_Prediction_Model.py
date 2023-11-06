@@ -131,7 +131,7 @@ class PrepareVideosGen(tf.keras.utils.Sequence):
     def __len__(self):
         return self.n//self.batch_size
 
-def build_encoder():
+def build_model():
     inputs = keras.Input(shape=(max_sequence_length,num_features))
     x = keras.layers.Conv1D(128,padding='valid',kernel_size=7,activation='swish')(inputs)
     x = keras.layers.Conv1D(256,padding='valid',kernel_size=5,activation='swish')(x)
@@ -146,5 +146,5 @@ def build_encoder():
 train_gen = PrepareVideosGen(masked_data.loc[masked_data["Split"] == "TRAIN",:],batch_size=batch_size)
 val_gen = PrepareVideosGen(masked_data.loc[masked_data["Split"] == "VAL",:],batch_size=batch_size)
 checkpoint = keras.callbacks.ModelCheckpoint(filepath="models/conv1d.{epoch:02d}-{val_loss:.2f}.hdf5",save_weights_only=True,save_best_only=False)
-encoder_model = build_encoder()
-history = encoder_model.fit(train_gen,epochs=20,callbacks=[checkpoint],validation_data=val_gen)
+model = build_model()
+history = model.fit(train_gen,epochs=20,callbacks=[checkpoint],validation_data=val_gen)
