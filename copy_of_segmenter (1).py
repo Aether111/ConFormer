@@ -7,10 +7,6 @@ Original file is located at
     https://colab.research.google.com/drive/1T5XU2Qe1J1ftTa0NgAIJ1IGMPhBsc-_2
 """
 
-!pip install keras-tuner
-
-pip install protobuf==3.20.*
-
 from skimage.draw import polygon
 import pandas as pd
 import numpy as np
@@ -95,7 +91,7 @@ def DilatedSpatialPyramidPooling(dspp_input,hp):
     output = convolution_block(x, kernel_size=1)
     return output
 
-def DeeplabV3Plus1(hp):
+def DeeplabV3Plus(hp):
     image_size = 224
     num_classes = 2
     model_input = keras.Input(shape=(image_size, image_size, 3))
@@ -220,139 +216,6 @@ train_gen = PrepareImagesGen(metadata.loc[metadata["Split"] == "TRAIN",:],batch_
 val_gen = PrepareImagesGen(metadata.loc[metadata["Split"] == "VAL",:],batch_size=batch_size)
 checkpoint = keras.callbacks.ModelCheckpoint(filepath="models/segmenter.{epoch:02d}-{val_loss:.2f}.hdf5",save_weights_only=True,save_best_only=False)
 scheduler = tf.keras.callbacks.LearningRateScheduler(tf.keras.optimizers.schedules.CosineDecay(learning_rate,50),verbose=0)
-model = kt.BayesianOptimization(DeeplabV3Plus1,objective=kt.Objective("val_dice_coef", direction="max"),max_trials=21,seed=42,directory="models/")
+model = kt.BayesianOptimization(DeeplabV3Plus,objective=kt.Objective("val_dice_coef", direction="max"),max_trials=21,seed=42,directory="models/")
 history = model.search(train_gen,epochs=epochs,callbacks=[checkpoint,scheduler],validation_data=val_gen)
 besthp = model.get_best_hyperparameters()[0]
-print(besthp)
-
-image = train_gen.__getitem__(0)
-p = network_model.predict(image[0])
-#plt.imshow(np.argmax(p[0],axis=2))
-plt.imshow((image[1][0]*5)+np.argmax(p[0],axis=2,keepdims=True))
-
-def convolution_block(
-    block_input,
-    num_filters=256,
-    kernel_size=3,
-    dilation_rate=1,
-    padding="same",
-    use_bias=False,
-):
-    x = layers.Conv2D(
-        num_filters,
-        kernel_size=kernel_size,
-        dilation_rate=dilation_rate,
-        padding="same",
-        use_bias=use_bias,
-        kernel_initializer=keras.initializers.HeNormal(),
-    )(block_input)
-    x = layers.BatchNormalization()(x)
-    return tf.nn.relu(x)
-
-
-def DilatedSpatialPyramidPooling(dspp_input, i):
-    dims = dspp_input.shape
-    x = layers.AveragePooling2D(pool_size=(dims[-3], dims[-2]))(dspp_input)
-    x = convolution_block(x, kernel_size=1, use_bias=True)
-    out_pool = layers.UpSampling2D(
-        size=(dims[-3] // x.shape[1], dims[-2] // x.shape[2]), interpolation="bilinear",
-    )(x)
-
-    dilation_rate = i # 2 to 12 possibility
-
-    out_1 = convolution_block(dspp_input, kernel_size=1, dilation_rate=1)
-    out_6 = convolution_block(dspp_input, kernel_size=3, dilation_rate=dilation_rate)
-    out_12 = convolution_block(dspp_input, kernel_size=3, dilation_rate=dilation_rate*2)
-    out_18 = convolution_block(dspp_input, kernel_size=3, dilation_rate=dilation_rate*3)
-
-    x = layers.Concatenate(axis=-1)([out_pool, out_1, out_6, out_12, out_18])
-    output = convolution_block(x, kernel_size=1)
-    return output
-def DeeplabV3Plus1(i):
-    image_size = 224
-    num_classes = 2
-    model_input = keras.Input(shape=(image_size, image_size, 3))
-    resnet50 = tf.keras.applications.ResNet50(
-        weights="imagenet", include_top=False, input_tensor=model_input
-    )
-    #trainable_layers = hp.Int("trainable_layers",min_value=0,max_value=len(resnet50.layers))
-    for idx,layer in enumerate(reversed(resnet50.layers)):
-        #if idx == trainable_layers:
-            #break
-        layer.trainable = True
-    x = resnet50.get_layer("conv3_block3_2_relu").output
-    x = DilatedSpatialPyramidPooling(x, i)
-
-    input_a = layers.UpSampling2D(
-        size=(image_size // 4 // x.shape[1], image_size // 4 // x.shape[2]),
-        interpolation="bilinear",
-    )(x)
-    input_b = resnet50.get_layer("conv2_block3_2_relu").output
-    input_b = convolution_block(input_b, num_filters=48, kernel_size=1)
-
-    x = layers.Concatenate(axis=-1)([input_a, input_b])
-    x = convolution_block(x)
-    x = convolution_block(x)
-    x = layers.UpSampling2D(
-        size=(image_size // x.shape[1], image_size // x.shape[2]),
-        interpolation="bilinear",
-    )(x)
-    model_output = layers.Conv2D(num_classes, kernel_size=(1, 1), padding="same")(x)
-    model = keras.Model(inputs=model_input, outputs=model_output)
-    model.compile(loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate,epsilon=1e-8),metrics=["accuracy",dice_coef])
-    return model
-
-train_gen = PrepareImagesGen(metadata.loc[metadata["Split"] == "TRAIN",:],batch_size=batch_size)
-
-images = [train_gen.__getitem__(i) for i in range(4)]
-
-for i in range(3,7):
-  model = DeeplabV3Plus1(i)
-  model.load_weights('SegModels/segmenter.06-0.04.hdf5')
-  j = 0
-  print(i)
-  for image in images:
-    print(j, model.evaluate(x=image[0],y=image[1]),sep='\n')
-    j += 1
-  print('------------------')
-
-import matplotlib.pyplot as plt
-from tqdm import tqdm as tqdm
-
-def save_overlay_as_pdf(image, segmentation, filename):
-    # Create a binary mask from the segmentation
-    binary_mask = np.argmax(segmentation, axis=-1)
-
-    # Create a color mask with the segmentation in blue, normalized
-    color_mask = np.zeros_like(image)
-    color_mask[binary_mask == 1] = [0, 0, 1] # Blue color, normalized
-
-    # Overlay the color mask on the original image with 75% opacity
-    overlayed_image = cv2.addWeighted(image, 0.25, color_mask, 0.75, 0) # 75% opacity
-
-    # Plot and save as PDF
-    #plt.tight_layout()
-    plt.imshow(overlayed_image)
-    plt.axis('off') # Remove axis
-    #plt.tight_layout()
-    plt.savefig(filename, bbox_inches='tight', pad_inches=0.0, format='pdf')
-    plt.close()
-
-
-
-# Assuming you have a test generator or some images loaded
-test_gen = PrepareImagesGen(metadata.loc[metadata["Split"] == "TEST",:], batch_size=10)
-
-# Load the model
-model = DeeplabV3Plus1(4)
-model.load_weights('SegModels/segmenter.06-0.04.hdf5')
-
-# Get a batch of images and segmentations
-images, _ = test_gen.__getitem__(0)
-
-# Predict segmentations
-segmentations = model.predict(images)
-
-# Overlay segmentations and save as PDFs
-for i in tqdm(range(10)):
-    save_overlay_as_pdf(images[i], segmentations[i], f'segmentation_{i}.pdf')
