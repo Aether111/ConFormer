@@ -33,13 +33,11 @@ data = pd.read_csv("MeasurementsList.csv")
 data.drop(columns=["Unnamed: 0"], inplace=True)
 mask = (data["Calc"] == "LVPWd") | (data["Calc"] == "LVIDd") | (data["Calc"] == "IVSd")
 data = data[mask]
-data
 
 data["HashedFileNameAVI"] = data["HashedFileName"] + ".avi"
 df_list = set(data["HashedFileNameAVI"].unique())
 to_remove = df_list.difference(file_list)
 data = data[~data["HashedFileNameAVI"].isin(to_remove)]
-data
 
 MAX_SEQ_LENGTH = 32
 IMAGE_DIMS = (640, 480) # (224, 224)
@@ -109,13 +107,11 @@ clean_data = clean_data[clean_data["HashedFileName"].isin(calc_mask.index)]
 # clean_data = clean_data[data_mask]
 clean_data = clean_data[~clean_data.duplicated(["HashedFileName", "Calc"])]
 clean_data.reset_index(inplace=True, drop=True)
-clean_data
 
 clean_data["Width"] = clean_data["Width"].astype(int)
 clean_data["Height"] = clean_data["Height"].astype(int)
 clean_data = clean_data.loc[((clean_data["Width"] == 800) & (clean_data["Height"] == 600)) | ((clean_data["Width"] == 1024) & (clean_data["Height"] == 768)),:]
 clean_data["Frames"] = clean_data["Frames"].astype(int)
-clean_data
 
 def run_inference(paths):
   batch = np.zeros((BATCH_SIZE, IMAGE_DIMS[1], IMAGE_DIMS[0], IMAGE_CHANNELS))
@@ -282,7 +278,8 @@ model = DeeplabV3Plus(IMAGE_DIMS, 4)
 model.compile(loss=MUC(), optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate,epsilon=1e-8), metrics=[get_lens_np]) # possibly include ema and amsgrad
 checkpoint = keras.callbacks.ModelCheckpoint(filepath="models/lvhlvh.{epoch:02d}-{val_loss:.2f}.hdf5",save_weights_only=True, save_best_only=True)
 
-model.fit(train_gen, batch_size=BATCH_SIZE, shuffle=False, epochs=20, verbose=True, callbacks=[checkpoint], validation_data=val_gen)
+# Uncomment to fit
+# model.fit(train_gen, batch_size=BATCH_SIZE, shuffle=False, epochs=20, verbose=True, callbacks=[checkpoint], validation_data=val_gen)
 
 def run_inference_on_image(path, target_frame=0):
   frame = load_avi(path, target_frame=target_frame)
